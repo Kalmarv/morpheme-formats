@@ -1,6 +1,6 @@
 [package]
-name = "primase-rsx"
-description = "RSX shader program containers"
+name = "primase-morpheme"
+description = "Morpheme 32-bit big-endian simple bundles and reference rigs"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
