@@ -14,3 +14,42 @@ thiserror.workspace = true
 
 [lints]
 workspace = true
+
+[workspace]
+
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/Kalmarv/morpheme-formats"
+publish = false
+
+[workspace.dependencies]
+primase-foundations = { git = "https://github.com/Kalmarv/primase-foundations", rev = "05dc616e7bd14cad63c4e5218be6e8b79cee60ce" }
+thiserror = { version = "=2.0.21", default-features = false, features = ["std"] }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+float_cmp = "allow"
+dbg_macro = "warn"
+todo = "warn"
+unwrap_used = "warn"
+iter_over_hash_type = "deny"
+disallowed_methods = "allow"
+disallowed_types = "allow"
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 2
+debug = false
+
+[profile.test]
+opt-level = 1
