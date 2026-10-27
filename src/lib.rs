@@ -1,6 +1,49 @@
-//! The 32-bit big-endian Morpheme simple-bundle and reference-rig layout.
-//! Other pointer widths, byte orders and rig layouts are not implied by this reader.
-//! Network and motion assets remain bounded records; only type 1 reference rigs are decoded.
+//! Reader for the 32-bit big-endian NaturalMotion Morpheme *simple bundle* and the skeleton
+//! (*rig*) records inside it.
+//!
+//! [Morpheme] is animation middleware. Games ship its runtime assets (networks, rigs, motion
+//! data) in bundles: a sequence of records, each a 32-byte header followed by a payload padded
+//! to 16 bytes. This crate was written against the big-endian, 32-bit-pointer bundles on the
+//! PlayStation 3 disc of Tony Hawk's SHRED (five bundles, 1,680 records, ten of them rigs).
+//! The code does not read any version field, so no Morpheme release number is claimed; other
+//! pointer widths, byte orders and rig layouts are not implied.
+//!
+//! - [`bundle_be32`] splits a bundle into [`Record`]s. Every record is bounded, whatever its
+//!   asset type, and the walk must end exactly at the end of the input.
+//! - [`rig_be32`] decodes the payload of a type 1 record into a [`Rig`]: joint names, parents,
+//!   and the reference pose (rotation and translation per joint). Network and motion records
+//!   stay opaque byte slices.
+//!
+//! Every read is bounds-checked and returns an [`Error`] naming the byte offset and what was
+//! expected; malformed input is refused, not a panic.
+//!
+//! ```
+//! use morpheme_formats::bundle_be32;
+//!
+//! // One record of unknown type: 32-byte header, 3 payload bytes, 13 padding bytes.
+//! let mut bundle = Vec::new();
+//! bundle.extend_from_slice(&0x1234_5678u32.to_be_bytes()); // asset type
+//! bundle.extend_from_slice(&7u32.to_be_bytes()); // asset id
+//! bundle.extend_from_slice(&[0xAA; 16]); // GUID
+//! bundle.extend_from_slice(&3u32.to_be_bytes()); // payload length
+//! bundle.extend_from_slice(&0u32.to_be_bytes()); // header word
+//! bundle.extend_from_slice(&[1, 2, 3]);
+//! bundle.extend_from_slice(&[0; 13]);
+//!
+//! let records = bundle_be32(&bundle)?;
+//! assert_eq!(records.len(), 1);
+//! assert_eq!(records[0].asset_id, 7);
+//! assert_eq!(records[0].payload, [1, 2, 3]);
+//!
+//! // A truncated bundle is refused with the offset of the failed read.
+//! assert!(bundle_be32(&bundle[..40]).is_err());
+//! # Ok::<(), morpheme_formats::Error>(())
+//! ```
+//!
+//! The crate performs no file I/O; `examples/read_bundle.rs` shows reading a file and listing
+//! its rigs.
+//!
+//! [Morpheme]: https://en.wikipedia.org/wiki/NaturalMotion
 #![deny(clippy::disallowed_methods, clippy::disallowed_types)]
 #![deny(
     clippy::arithmetic_side_effects,
@@ -11,10 +54,16 @@
 use primase_foundations::bytes::{BoundsError, Cursor, Endian::Big, View};
 use std::collections::BTreeSet;
 
+/// A refused read: where in the input it failed and what was expected there.
+///
+/// Rig errors carry offsets in the containing bundle when the `origin` passed to [`rig_be32`]
+/// is the payload's bundle offset.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("Morpheme at {offset:#x}: {detail}")]
 pub struct Error {
+    /// Byte offset of the field that failed.
     pub offset: usize,
+    /// What was expected at `offset`.
     pub detail: String,
 }
 impl From<BoundsError> for Error {
@@ -38,21 +87,37 @@ fn size(n: u32) -> Result<usize, Error> {
     usize::try_from(n).map_err(|_| err(0, "count exceeds address space"))
 }
 
+/// One bundle record: a 32-byte header and its payload, borrowed from the input.
+///
 /// A record's identity is scoped to its containing bundle; no GUID deduplication is performed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Record<'a> {
+    /// Byte offset of the record's header in the bundle.
     pub offset: usize,
+    /// Asset type word; 1 is a rig (see [`rig_be32`]), other values are not interpreted.
     pub asset_type: u32,
+    /// Asset id word.
     pub asset_id: u32,
+    /// The 16-byte GUID, as stored.
     pub guid: [u8; 16],
+    /// The header word after the payload length, retained without interpretation.
     pub header_word: u32,
+    /// The payload, exactly the declared length.
     pub payload: &'a [u8],
     /// Authored bytes between this payload and the next 16-byte boundary.
     pub padding: &'a [u8],
 }
 
-/// Reads every 32-byte header and its payload rounded up to 16 bytes, through exact EOF.
-/// Even a short trailing fragment is an error; it is not silently treated as a terminator.
+/// Splits a bundle into its records.
+///
+/// A record is a 32-byte header (`u32` type, `u32` id, 16-byte GUID, `u32` payload length, one
+/// `u32` word, all big-endian) followed by the payload rounded up to 16 bytes. Reads every record
+/// through exact end of input; even a short trailing fragment is an error, not a terminator.
+/// Padding bytes are returned as stored and need not be zero.
+///
+/// # Errors
+///
+/// An [`Error`] at the offset of the first header or payload that does not fit in `bytes`.
 pub fn bundle_be32(bytes: &[u8]) -> Result<Vec<Record<'_>>, Error> {
     let mut c = Cursor::new(bytes);
     let mut records = Vec::new();
@@ -83,24 +148,32 @@ pub fn bundle_be32(bytes: &[u8]) -> Result<Vec<Record<'_>>, Error> {
     Ok(records)
 }
 
+/// One joint of a [`Rig`] with its reference pose.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Joint {
     /// Source index, scoped to this rig. Names may repeat.
     pub id: u32,
+    /// Name bytes without the terminating NUL; not necessarily UTF-8.
     pub name: Vec<u8>,
+    /// [`Joint::id`] of the parent, or `None` for a root. Always inside the rig.
     pub parent: Option<u32>,
+    /// Reference rotation as an XYZW quaternion, unit length within 0.001, stored as read.
     pub rotation: [f32; 4],
+    /// Reference translation (X, Y, Z); always finite.
     pub translation: [f32; 3],
     /// Fourth position lane is ignored by the native matrix constructor; it is not a float semantic.
     pub position_w_bits: u32,
 }
 
+/// A decoded type 1 record: the skeleton hierarchy and its reference pose.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Rig {
     /// Separate rig-header orientation; not applied to the reference joint arrays.
     pub header_rotation: [f32; 4],
-    /// Header +0x10 vector, retained without assigning a reference/bind-space meaning.
+    /// The four words at header offset 0x10, as raw bits; their meaning is not established.
     pub header_vector_bits: [u32; 4],
+    /// Joints in order of [`Joint::id`] (0 up to the joint count minus one); the hierarchy is
+    /// acyclic.
     pub joints: Vec<Joint>,
 }
 
@@ -144,9 +217,23 @@ impl Reader<'_> {
     }
 }
 
-/// Reads a type 1 payload. `origin` is its byte offset in the containing bundle, for errors.
-/// Pointer bases follow the serialized relocators: rig, string table, attribute header, then data buffer.
-/// Runtime pointers and alignment padding are not interpreted as serialized offsets or zeroes.
+/// Decodes the payload of a type 1 record ([`Record::payload`]) into a [`Rig`].
+///
+/// `origin` is the payload's byte offset in the containing bundle (0 for a standalone payload);
+/// it is added to the offsets in errors. Stored pointers are offsets relative to four bases: the
+/// rig, its string table, the reference-attribute header, and that header's data buffer.
+/// Runtime-pointer words and alignment padding are neither followed nor required to be zero.
+///
+/// The reference pose must hold exactly one position attribute (descriptor 2) and one rotation
+/// attribute (descriptor 6), each with stride and alignment 16 and one entry per joint. Values
+/// are never normalised.
+///
+/// # Errors
+///
+/// An [`Error`] naming the offset and cause for: truncated or out-of-range spans, an empty rig,
+/// a joint/name/reference count mismatch, duplicate or out-of-range name ids, unterminated
+/// names, missing, duplicate or unsupported reference attributes, non-finite translations,
+/// non-unit or non-finite quaternions, parents outside the rig, and cyclic hierarchies.
 pub fn rig_be32(bytes: &[u8], origin: usize) -> Result<Rig, Error> {
     let r = Reader {
         view: View::with_origin(bytes, origin),

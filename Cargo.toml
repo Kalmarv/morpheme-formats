@@ -1,6 +1,10 @@
 [package]
 name = "morpheme-formats"
-description = "Morpheme 32-bit big-endian simple bundles and reference rigs"
+description = "Checked reader for 32-bit big-endian NaturalMotion Morpheme bundles and the skeleton rigs in them"
+keywords = ["morpheme", "animation", "skeleton", "game-assets", "parser"]
+categories = ["parser-implementations", "game-development"]
+readme = "README.md"
+documentation = "https://docs.rs/morpheme-formats"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
