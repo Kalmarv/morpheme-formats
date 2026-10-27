@@ -31,7 +31,7 @@ repository = "https://github.com/Kalmarv/morpheme-formats"
 publish = false
 
 [workspace.dependencies]
-primase-foundations = { git = "https://github.com/Kalmarv/primase-foundations", rev = "d0851b3ce3b233489174a9d218251ee5b423a926" }
+primase-foundations = { git = "https://github.com/Kalmarv/primase-foundations", rev = "8dd2fb8caa84eb22b6998655550f1cf288ca6b93" }
 thiserror = { version = "=2.0.21", default-features = false, features = ["std"] }
 
 [workspace.lints.rust]
