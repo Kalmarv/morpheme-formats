@@ -45,6 +45,7 @@
 //!
 //! [Morpheme]: https://en.wikipedia.org/wiki/NaturalMotion
 #![deny(clippy::disallowed_methods, clippy::disallowed_types)]
+#![deny(missing_docs)]
 #![deny(
     clippy::arithmetic_side_effects,
     clippy::indexing_slicing,
