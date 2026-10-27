@@ -83,8 +83,10 @@ fn err(offset: usize, detail: impl Into<String>) -> Error {
 fn add(a: usize, b: usize) -> Result<usize, Error> {
     a.checked_add(b).ok_or_else(|| err(a, "offset overflow"))
 }
-fn size(n: u32) -> Result<usize, Error> {
-    usize::try_from(n).map_err(|_| err(0, "count exceeds address space"))
+/// A stored `u32` count or offset as `usize`, refused at `at` (the field's offset) where the
+/// address space is too small for it.
+fn size(n: u32, at: usize) -> Result<usize, Error> {
+    usize::try_from(n).map_err(|_| err(at, "count or offset exceeds the address space"))
 }
 
 /// One bundle record: a 32-byte header and its payload, borrowed from the input.
@@ -126,7 +128,8 @@ pub fn bundle_be32(bytes: &[u8]) -> Result<Vec<Record<'_>>, Error> {
         let asset_type = c.u32(Big)?;
         let asset_id = c.u32(Big)?;
         let guid = c.array()?;
-        let length = size(c.u32(Big)?)?;
+        let length_at = c.position();
+        let length = size(c.u32(Big)?, length_at)?;
         let header_word = c.u32(Big)?;
         let payload = c.take(length)?;
         let padding = c.take(
@@ -185,11 +188,15 @@ impl Reader<'_> {
     fn u(&self, at: usize) -> Result<u32, Error> {
         Ok(self.view.u32(at, Big)?)
     }
+    /// The word at `at` as a count or offset, refused at its bundle offset if it cannot be one.
+    fn word(&self, at: usize) -> Result<usize, Error> {
+        size(self.u(at)?, self.origin.saturating_add(at))
+    }
     fn at(&self, base: usize, delta: usize) -> Result<usize, Error> {
         add(base, delta)
     }
     fn relative(&self, base: usize, field: usize) -> Result<usize, Error> {
-        self.at(base, size(self.u(self.at(base, field)?)?)?)
+        self.at(base, self.word(self.at(base, field)?)?)
     }
     fn fail(&self, at: usize, detail: impl Into<String>) -> Error {
         err(self.origin.saturating_add(at), detail)
@@ -248,30 +255,34 @@ pub fn rig_be32(bytes: &[u8], origin: usize) -> Result<Rig, Error> {
         header_vector.u32(Big)?,
         header_vector.u32(Big)?,
     ];
-    let hierarchy = size(r.u(0x20)?)?;
-    let count = size(r.u(hierarchy)?)?;
+    let hierarchy = r.word(0x20)?;
+    let count = r.word(hierarchy)?;
     if count == 0 {
         return Err(r.fail(hierarchy, "empty rig"));
     }
     // The on-disc word at hierarchy+4 is a runtime pointer: relocation replaces it with hierarchy+8.
     let mut parents = r.table(add(hierarchy, 8)?, count, 4)?;
-    let strings = size(r.u(0x44)?)?;
-    if size(r.u(strings)?)? != count {
+    let strings = r.word(0x44)?;
+    if r.word(strings)? != count {
         return Err(r.fail(strings, "joint/name count mismatch"));
     }
-    let string_length = size(r.u(add(strings, 4)?)?)?;
+    let string_length = r.word(add(strings, 4)?)?;
     let string_base = r.relative(strings, 16)?;
     let names = r.view.slice(string_base, string_length)?;
-    let mut ids = r.table(r.relative(strings, 8)?, count, 4)?;
-    let mut offsets = r.table(r.relative(strings, 12)?, count, 4)?;
+    let ids_at = r.relative(strings, 8)?;
+    let offsets_at = r.relative(strings, 12)?;
+    let mut ids = r.table(ids_at, count, 4)?;
+    let mut offsets = r.table(offsets_at, count, 4)?;
     let mut indexed_names = Vec::new();
     let mut seen = BTreeSet::new();
     for _ in 0..count {
+        let id_field = add(ids_at, ids.position())?;
         let id = ids.u32(Big)?;
-        if size(id)? >= count || !seen.insert(id) {
-            return Err(r.fail(strings, "duplicate or out-of-range name ID"));
+        if size(id, r.origin.saturating_add(id_field))? >= count || !seen.insert(id) {
+            return Err(r.fail(id_field, "duplicate or out-of-range name ID"));
         }
-        let offset = size(offsets.u32(Big)?)?;
+        let offset_field = add(offsets_at, offsets.position())?;
+        let offset = size(offsets.u32(Big)?, r.origin.saturating_add(offset_field))?;
         let tail = names.get(offset..).ok_or_else(|| {
             r.fail(
                 add(string_base, offset).unwrap_or(usize::MAX),
@@ -292,17 +303,17 @@ pub fn rig_be32(bytes: &[u8], origin: usize) -> Result<Rig, Error> {
         ));
     }
     indexed_names.sort_by_key(|(id, _)| *id);
-    let reference = size(r.u(0x48)?)?;
+    let reference = r.word(0x48)?;
     let format = r.relative(reference, 16)?;
-    let format_length = size(r.u(format)?)?;
+    let format_length = r.word(format)?;
     let f = Reader {
         view: View::with_origin(r.view.slice(format, format_length)?, add(origin, format)?),
         origin: add(origin, format)?,
     };
-    if size(r.u(add(format, 8)?)?)? != count {
+    if r.word(add(format, 8)?)? != count {
         return Err(r.fail(add(format, 8)?, "reference joint count mismatch"));
     }
-    let attributes = size(r.u(add(format, 12)?)?)?;
+    let attributes = r.word(add(format, 12)?)?;
     let mut descriptors = f.table(f.relative(0, 16)?, attributes, 12)?;
     let mut pointers = f.table(f.relative(0, 20)?, attributes, 4)?;
     let mut position = None;
@@ -311,7 +322,8 @@ pub fn rig_be32(bytes: &[u8], origin: usize) -> Result<Rig, Error> {
         let typ = descriptors.u32(Big)?;
         let stride = descriptors.u32(Big)?;
         let alignment = descriptors.u32(Big)?;
-        let relative_at = size(pointers.u32(Big)?)?;
+        let pointer_field = add(f.relative(0, 20)?, pointers.position())?;
+        let relative_at = size(pointers.u32(Big)?, f.origin.saturating_add(pointer_field))?;
         let at = add(format, relative_at)?;
         if stride != 16 || alignment != 16 || !matches!(typ, 2 | 6) {
             return Err(r.fail(
@@ -338,7 +350,7 @@ pub fn rig_be32(bytes: &[u8], origin: usize) -> Result<Rig, Error> {
         } else {
             let parent =
                 u32::try_from(parent).map_err(|_| r.fail(parent_field, "invalid negative parent"))?;
-            if size(parent)? >= count {
+            if size(parent, r.origin.saturating_add(parent_field))? >= count {
                 return Err(r.fail(parent_field, "parent outside rig"));
             }
             Some(parent)
@@ -381,7 +393,7 @@ pub fn rig_be32(bytes: &[u8], origin: usize) -> Result<Rig, Error> {
                 return Err(r.fail(hierarchy, "cyclic joint hierarchy"));
             }
             next = joints
-                .get(size(id)?)
+                .get(size(id, r.origin.saturating_add(hierarchy))?)
                 .ok_or_else(|| r.fail(hierarchy, "joint index"))?
                 .parent;
         }

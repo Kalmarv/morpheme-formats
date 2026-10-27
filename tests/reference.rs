@@ -168,3 +168,44 @@ fn bounded_sibling_unknown_record_padding_and_eof() {
     b.push(0);
     assert!(bundle_be32(&b).is_err());
 }
+
+#[test]
+fn hostile_words_and_origins_are_refused_without_panic() {
+    let b = fixture();
+    for origin in [0, 17, usize::MAX - 8, usize::MAX] {
+        for end in (0..b.len()).step_by(4) {
+            let _ = rig_be32(&b[..end], origin);
+        }
+        let _ = rig_be32(&b, origin);
+    }
+    for at in (0..b.len()).step_by(4) {
+        for value in [0, 1, 2, 3, 0x10, 0x7fff_ffff, 0x8000_0000, 0xffff_fffc, u32::MAX] {
+            let mut bad = b.clone();
+            u(&mut bad, at, value);
+            for origin in [0, usize::MAX - 3] {
+                let _ = rig_be32(&bad, origin);
+            }
+        }
+    }
+    // A huge declared payload length is refused, not allocated.
+    let mut header = vec![0; 32];
+    u(&mut header, 24, u32::MAX);
+    let error = bundle_be32(&header).expect_err("payload past the end");
+    assert_eq!(error.offset, 32);
+}
+
+#[test]
+fn refusals_name_the_bad_field() {
+    for (at, value, expected, detail) in [
+        // The second name id (0x98) repeats the first.
+        (0x94, 0, 0x98, "name ID"),
+        // The first name id is outside the rig.
+        (0x94, 2, 0x94, "name ID"),
+    ] {
+        let mut bad = fixture();
+        u(&mut bad, at, value);
+        let error = rig_be32(&bad, 17).expect_err(detail);
+        assert!(error.detail.contains(detail), "{error}");
+        assert_eq!(error.offset, 17 + expected, "{error}");
+    }
+}
