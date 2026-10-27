@@ -35,8 +35,8 @@ dependencies = [
 
 [[package]]
 name = "primase-foundations"
-version = "0.1.0"
-source = "git+https://github.com/Kalmarv/primase-foundations?rev=dc4369b73343f3e0d81adc47f2e504027efc1d5a#dc4369b73343f3e0d81adc47f2e504027efc1d5a"
+version = "0.2.0"
+source = "git+https://github.com/Kalmarv/primase-foundations?rev=b3a3d4b3a892b8342fda081ab4449bb57052a2f8#b3a3d4b3a892b8342fda081ab4449bb57052a2f8"
 dependencies = [
  "half",
  "thiserror",
