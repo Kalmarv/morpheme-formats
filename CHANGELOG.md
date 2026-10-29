@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.1 (2026-10-29)
 
 - Depends on primase-foundations 0.3.0, which has no type in this crate's API.
 

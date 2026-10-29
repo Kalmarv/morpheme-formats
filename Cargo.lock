@@ -27,7 +27,7 @@ dependencies = [
 
 [[package]]
 name = "morpheme-formats"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "primase-foundations",
  "thiserror",
@@ -35,8 +35,8 @@ dependencies = [
 
 [[package]]
 name = "primase-foundations"
-version = "0.2.1"
-source = "git+https://github.com/Kalmarv/primase-foundations?rev=e895f966130651bd78c47505b53322cc3f58083a#e895f966130651bd78c47505b53322cc3f58083a"
+version = "0.3.0"
+source = "git+https://github.com/Kalmarv/primase-foundations?rev=f9cf4ece1de77fce9d703c63347dd70b728b7c0e#f9cf4ece1de77fce9d703c63347dd70b728b7c0e"
 dependencies = [
  "half",
  "thiserror",
