@@ -65,6 +65,11 @@ Checks against real game files are not part of this repository's tests, and it h
 
 The crate depends on [`primase-foundations`](https://github.com/Kalmarv/primase-foundations) (a bounds-checked byte cursor) and `thiserror`, and uses Rust 2024 edition.
 
+## Check the examples
+
+From the repository root, `cargo test -p morpheme-formats --doc` checks the crate documentation, and
+`cargo build -p morpheme-formats --examples` builds its example programs. Examples that read paths need the caller's files; the repository ships no game assets.
+
 ## License
 
 GPL-3.0-or-later; see [LICENSE](LICENSE).
