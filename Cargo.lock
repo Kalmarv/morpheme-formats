@@ -35,8 +35,9 @@ dependencies = [
 
 [[package]]
 name = "primase-foundations"
-version = "0.3.0"
-source = "git+https://github.com/Kalmarv/primase-foundations?rev=f9cf4ece1de77fce9d703c63347dd70b728b7c0e#f9cf4ece1de77fce9d703c63347dd70b728b7c0e"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c8ce10679d3b7293ed544edd2db56485a7b458574d3c95084d97d27e9d7e9200"
 dependencies = [
  "half",
  "thiserror",
