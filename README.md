@@ -1,5 +1,7 @@
 # morpheme-formats
 
+[![crates.io: morpheme-formats](https://img.shields.io/crates/v/morpheme-formats?label=morpheme-formats)](https://crates.io/crates/morpheme-formats) [![docs.rs](https://img.shields.io/docsrs/morpheme-formats)](https://docs.rs/morpheme-formats) [![CI](https://img.shields.io/github/actions/workflow/status/Kalmarv/morpheme-formats/ci.yml?branch=main&label=CI)](https://github.com/Kalmarv/morpheme-formats/actions/workflows/ci.yml)
+
 A Rust library that reads NaturalMotion Morpheme animation bundles and the skeleton rigs inside them. It supports the 32-bit, big-endian layout used on the PlayStation 3 disc of Tony Hawk's SHRED.
 
 ## Features
